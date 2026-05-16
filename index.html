@@ -5,17 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>منصة إدارة الفلل</title>
   
-  <!-- React -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  
-  <!-- Babel -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  
-  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
-  
-  <!-- Supabase - أهم شيء -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.38.4"></script>
   
   <style>
@@ -45,6 +38,7 @@
       const [error, setError] = useState(null);
       const [selectedItem, setSelectedItem] = useState(null);
       const [supabase, setSupabase] = useState(null);
+      const [debugInfo, setDebugInfo] = useState('');
 
       useEffect(() => {
         initSupabase();
@@ -52,19 +46,20 @@
 
       const initSupabase = async () => {
         try {
-          console.log('🔍 التحقق من window.supabase:', window.supabase);
+          console.log('🔍 جاري تهيئة Supabase...');
           
           if (!window.supabase) {
-            throw new Error('مكتبة Supabase لم تُحمّل بعد');
+            throw new Error('مكتبة Supabase لم تُحمّل');
           }
 
           const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
           setSupabase(client);
-          console.log('✅ تم تهيئة Supabase بنجاح');
+          console.log('✅ تم تهيئة Supabase');
           
           await loadProjects(client);
         } catch (e) {
-          console.error('❌ خطأ في التهيئة:', e);
+          console.error('❌ خطأ:', e);
+          setDebugInfo('❌ ' + e.message);
           setError('❌ ' + e.message);
           setLoading(false);
         }
@@ -73,28 +68,42 @@
       const loadProjects = async (client) => {
         try {
           setLoading(true);
-          console.log('📡 جاري تحميل المشاريع...');
+          setDebugInfo('📡 جاري جلب المشاريع...');
+          console.log('📡 جاري جلب المشاريع من Supabase...');
           
+          // جرب بدون RLS أولاً
           const { data, error: err } = await client
             .from('projects')
-            .select('*')
-            .limit(100);
+            .select('*');
           
-          console.log('✅ النتيجة:', { data, error: err });
+          console.log('📦 النتيجة الكاملة:', { data, error: err });
+          setDebugInfo('نتيجة الاستعلام: ' + JSON.stringify({ dataCount: data?.length, error: err }));
           
           if (err) {
-            throw new Error(err.message);
+            console.error('❌ خطأ من Supabase:', err);
+            setDebugInfo('❌ خطأ: ' + err.message);
+            setError('❌ خطأ من Supabase: ' + err.message);
+            setLoading(false);
+            return;
           }
 
+          console.log('✅ عدد المشاريع:', data?.length);
+          setDebugInfo('✅ عدد المشاريع المجلوبة: ' + (data?.length || 0));
+
           if (data && data.length > 0) {
+            console.log('📦 البيانات:', data);
             setProjects(data);
             setSelectedProject(data[0].id);
             setError(null);
+            setDebugInfo('✅ تم جلب ' + data.length + ' مشروع بنجاح');
           } else {
-            setError('لا توجد مشاريع');
+            console.log('⚠️ لا توجد مشاريع في قاعدة البيانات');
+            setDebugInfo('⚠️ لا توجد مشاريع في جدول projects');
+            setError('لا توجد مشاريع - تأكد من أن البيانات موجودة');
           }
         } catch (e) {
-          console.error('❌ خطأ:', e);
+          console.error('❌ استثناء:', e);
+          setDebugInfo('❌ استثناء: ' + e.message);
           setError('❌ ' + e.message);
         } finally {
           setLoading(false);
@@ -109,7 +118,7 @@
 
       const loadProjectData = async (client, projectId) => {
         try {
-          console.log('📡 جاري تحميل المرحلة:', projectId);
+          console.log('📡 جاري جلب المراحل للمشروع:', projectId);
           
           const { data, error: err } = await client
             .from('project_phases')
@@ -126,16 +135,18 @@
                 )
               )
             `)
-            .eq('project_id', projectId)
-            .order('phase_order', { ascending: true });
+            .eq('project_id', projectId);
 
-          console.log('✅ النتيجة:', { data, error: err });
+          console.log('📦 المراحل:', { data, error: err });
 
           if (err) {
-            throw new Error(err.message);
+            console.error('❌ خطأ:', err);
+            setError('❌ ' + err.message);
+            return;
           }
 
           setPhases(data || []);
+          console.log('✅ عدد المراحل:', data?.length);
           
           let totalEst = 0, totalRev = 0, totalAct = 0;
           data?.forEach(phase => {
@@ -174,6 +185,7 @@
             <div className="text-center">
               <div className="text-5xl mb-4 animate-spin">⚙️</div>
               <p className="text-slate-600 dark:text-slate-400">جاري التحميل...</p>
+              <p className="text-xs text-slate-500 mt-2">{debugInfo}</p>
             </div>
           </div>
         );
@@ -210,6 +222,12 @@
                 <aside className="w-80 bg-white dark:bg-slate-800 border-r border-slate-200 p-4 max-h-[calc(100vh-70px)] overflow-y-auto">
                   <h2 className="text-lg font-bold mb-4">📋 المشاريع</h2>
                   
+                  {debugInfo && (
+                    <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 p-2 rounded mb-4 text-xs text-blue-600">
+                      {debugInfo}
+                    </div>
+                  )}
+
                   {error && (
                     <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 p-3 rounded mb-4 text-sm text-red-600">
                       {error}
@@ -230,10 +248,13 @@
                         >
                           <p className="font-bold text-sm">{project.name}</p>
                           <p className="text-xs text-slate-600">{project.location}</p>
+                          <p className="text-xs text-blue-600 mt-1">💰 {project.total_budget?.toLocaleString() || 0} ريال</p>
                         </button>
                       ))
                     ) : (
-                      <p className="text-slate-600 text-sm">لا توجد مشاريع</p>
+                      <p className="text-slate-600 text-sm p-3 bg-yellow-50 rounded border border-yellow-200">
+                        ⚠️ لا توجد مشاريع - تحقق من الـ Console
+                      </p>
                     )}
                   </div>
                 </aside>
@@ -336,7 +357,13 @@
                 ) : (
                   <div className="flex flex-col items-center justify-center h-96">
                     <div className="text-5xl mb-4">📊</div>
-                    <p className="text-slate-600">{error || 'لا توجد بيانات'}</p>
+                    <p className="text-slate-600 text-lg mb-4">{error || 'لا توجد بيانات'}</p>
+                    <button 
+                      onClick={() => window.location.reload()}
+                      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                    >
+                      🔄 أعد التحميل
+                    </button>
                   </div>
                 )}
               </main>
