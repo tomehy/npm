@@ -27,7 +27,7 @@
 
     function App() {
       const [darkMode, setDarkMode] = useState(localStorage.getItem('darkMode') === 'true');
-      const [sidebarOpen, setSidebarOpen] = useState(true);
+      const [sidebarOpen, setSidebarOpen] = useState(false);
       const [projects, setProjects] = useState([]);
       const [selectedProject, setSelectedProject] = useState(null);
       const [phases, setPhases] = useState([]);
