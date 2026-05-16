@@ -4,11 +4,20 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>منصة إدارة الفلل</title>
+  
+  <!-- React -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <!-- Babel -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  
+  <!-- Supabase - أهم شيء -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.38.4"></script>
+  
   <style>
     * { direction: rtl; margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -20,11 +29,8 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
-    // ⚠️ استبدل بمفاتيحك من Supabase
     const SUPABASE_URL = 'https://ckggajkwgfqoddyhypjp.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_iZ9WrOLC5gMfrXZpL7JV-A_Vy1ve5LQ';
-
-    let supabase = null;
 
     function App() {
       const [darkMode, setDarkMode] = useState(localStorage.getItem('darkMode') === 'true');
@@ -38,6 +44,7 @@
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState(null);
       const [selectedItem, setSelectedItem] = useState(null);
+      const [supabase, setSupabase] = useState(null);
 
       useEffect(() => {
         initSupabase();
@@ -45,119 +52,103 @@
 
       const initSupabase = async () => {
         try {
-          supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-          console.log('✅ Supabase initialized');
-          await loadProjects();
+          console.log('🔍 التحقق من window.supabase:', window.supabase);
+          
+          if (!window.supabase) {
+            throw new Error('مكتبة Supabase لم تُحمّل بعد');
+          }
+
+          const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+          setSupabase(client);
+          console.log('✅ تم تهيئة Supabase بنجاح');
+          
+          await loadProjects(client);
         } catch (e) {
-          console.error('❌ Supabase error:', e);
-          setError('خطأ في الاتصال: ' + e.message);
+          console.error('❌ خطأ في التهيئة:', e);
+          setError('❌ ' + e.message);
+          setLoading(false);
+        }
+      };
+
+      const loadProjects = async (client) => {
+        try {
+          setLoading(true);
+          console.log('📡 جاري تحميل المشاريع...');
+          
+          const { data, error: err } = await client
+            .from('projects')
+            .select('*')
+            .limit(100);
+          
+          console.log('✅ النتيجة:', { data, error: err });
+          
+          if (err) {
+            throw new Error(err.message);
+          }
+
+          if (data && data.length > 0) {
+            setProjects(data);
+            setSelectedProject(data[0].id);
+            setError(null);
+          } else {
+            setError('لا توجد مشاريع');
+          }
+        } catch (e) {
+          console.error('❌ خطأ:', e);
+          setError('❌ ' + e.message);
+        } finally {
           setLoading(false);
         }
       };
 
       useEffect(() => {
         if (selectedProject && supabase) {
-          loadProjectData(selectedProject);
+          loadProjectData(supabase, selectedProject);
         }
-      }, [selectedProject]);
+      }, [selectedProject, supabase]);
 
-      useEffect(() => {
-        localStorage.setItem('darkMode', darkMode);
-        document.documentElement.classList.toggle('dark', darkMode);
-      }, [darkMode]);
-
-      const loadProjects = async () => {
+      const loadProjectData = async (client, projectId) => {
         try {
-          setLoading(true);
-          setError(null);
-          console.log('📡 Loading projects...');
+          console.log('📡 جاري تحميل المرحلة:', projectId);
           
-          const { data, error: err } = await supabase
-            .from('projects')
-            .select('*')
-            .limit(100);
-          
-          console.log('📦 Projects response:', { data, error: err });
-          
-          if (err) {
-            setError('❌ ' + err.message);
-          } else if (data && data.length > 0) {
-            console.log('✅ Found', data.length, 'projects');
-            setProjects(data);
-            setSelectedProject(data[0].id);
-          } else {
-            setError('لا توجد مشاريع في قاعدة البيانات');
-          }
-        } catch (e) {
-          console.error('❌ Exception:', e);
-          setError('خطأ: ' + e.message);
-        } finally {
-          setLoading(false);
-        }
-      };
-
-      const loadProjectData = async (projectId) => {
-        try {
-          console.log('📡 Loading project data for:', projectId);
-          
-          const { data, error: err } = await supabase
+          const { data, error: err } = await client
             .from('project_phases')
             .select(`
-              id, 
-              phase_code, 
-              phase_name, 
-              phase_order, 
-              status,
+              id, phase_code, phase_name, phase_order, status,
               project_packages (
-                id, 
-                package_code, 
-                package_name, 
-                status, 
-                budget_estimated, 
-                budget_revised, 
-                budget_actual,
+                id, package_code, package_name, status, 
+                budget_estimated, budget_revised, budget_actual,
                 finishing_items (
-                  id, 
-                  item_name, 
-                  item_code, 
-                  category, 
-                  quantity, 
-                  unit_of_measure,
-                  proposed_brand, 
-                  quality_grade, 
-                  size_dimensions,
-                  total_price_estimated, 
-                  total_price_revised, 
-                  total_price_actual, 
-                  status, 
-                  notes
+                  id, item_name, item_code, category, quantity, unit_of_measure,
+                  proposed_brand, quality_grade, size_dimensions,
+                  total_price_estimated, total_price_revised, total_price_actual, 
+                  status, notes
                 )
               )
             `)
             .eq('project_id', projectId)
             .order('phase_order', { ascending: true });
 
-          console.log('📦 Phases response:', { data, error: err });
+          console.log('✅ النتيجة:', { data, error: err });
 
           if (err) {
-            setError('❌ ' + err.message);
-          } else {
-            console.log('✅ Found', data?.length, 'phases');
-            setPhases(data || []);
-            
-            let totalEst = 0, totalRev = 0, totalAct = 0;
-            data?.forEach(phase => {
-              phase.project_packages?.forEach(pkg => {
-                totalEst += pkg.budget_estimated || 0;
-                totalRev += pkg.budget_revised || pkg.budget_estimated || 0;
-                totalAct += pkg.budget_actual || 0;
-              });
-            });
-            setBudget({ estimated: totalEst, revised: totalRev, actual: totalAct });
+            throw new Error(err.message);
           }
+
+          setPhases(data || []);
+          
+          let totalEst = 0, totalRev = 0, totalAct = 0;
+          data?.forEach(phase => {
+            phase.project_packages?.forEach(pkg => {
+              totalEst += pkg.budget_estimated || 0;
+              totalRev += pkg.budget_revised || pkg.budget_estimated || 0;
+              totalAct += pkg.budget_actual || 0;
+            });
+          });
+          setBudget({ estimated: totalEst, revised: totalRev, actual: totalAct });
         } catch (e) {
-          console.error('❌ Exception:', e);
-          setError('خطأ: ' + e.message);
+          console.error('❌ خطأ:', e);
+          setError('❌ ' + e.message);
         }
       };
 
@@ -180,7 +171,10 @@
       if (loading) {
         return (
           <div className="flex items-center justify-center min-h-screen bg-slate-50 dark:bg-slate-900">
-            <div className="text-4xl animate-spin">⚙️</div>
+            <div className="text-center">
+              <div className="text-5xl mb-4 animate-spin">⚙️</div>
+              <p className="text-slate-600 dark:text-slate-400">جاري التحميل...</p>
+            </div>
           </div>
         );
       }
@@ -198,7 +192,7 @@
                   >
                     ☰
                   </button>
-                  <h1 className="text-xl font-bold">منصة الفلل</h1>
+                  <h1 className="text-xl font-bold">🏢 منصة الفلل</h1>
                 </div>
                 <button
                   onClick={() => setDarkMode(!darkMode)}
@@ -209,12 +203,12 @@
               </div>
             </header>
 
-            {/* Content */}
+            {/* Main Content */}
             <div className="flex">
               {/* Sidebar */}
               {sidebarOpen && (
-                <aside className="w-72 bg-white dark:bg-slate-800 border-r border-slate-200 p-4 max-h-[calc(100vh-70px)] overflow-y-auto">
-                  <h2 className="text-lg font-bold mb-4">المشاريع</h2>
+                <aside className="w-80 bg-white dark:bg-slate-800 border-r border-slate-200 p-4 max-h-[calc(100vh-70px)] overflow-y-auto">
+                  <h2 className="text-lg font-bold mb-4">📋 المشاريع</h2>
                   
                   {error && (
                     <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 p-3 rounded mb-4 text-sm text-red-600">
@@ -223,20 +217,24 @@
                   )}
                   
                   <div className="space-y-2">
-                    {projects.map(project => (
-                      <button
-                        key={project.id}
-                        onClick={() => setSelectedProject(project.id)}
-                        className={`w-full text-left p-3 rounded border transition ${
-                          selectedProject === project.id
-                            ? 'bg-blue-100 dark:bg-blue-900/40 border-blue-300'
-                            : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200'
-                        }`}
-                      >
-                        <p className="font-medium text-sm">{project.name}</p>
-                        <p className="text-xs text-slate-600">{project.location}</p>
-                      </button>
-                    ))}
+                    {projects.length > 0 ? (
+                      projects.map(project => (
+                        <button
+                          key={project.id}
+                          onClick={() => setSelectedProject(project.id)}
+                          className={`w-full text-left p-3 rounded border transition ${
+                            selectedProject === project.id
+                              ? 'bg-blue-100 dark:bg-blue-900/40 border-blue-400'
+                              : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 hover:bg-blue-100'
+                          }`}
+                        >
+                          <p className="font-bold text-sm">{project.name}</p>
+                          <p className="text-xs text-slate-600">{project.location}</p>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="text-slate-600 text-sm">لا توجد مشاريع</p>
+                    )}
                   </div>
                 </aside>
               )}
@@ -244,59 +242,47 @@
               {/* Main */}
               <main className="flex-1 p-4 max-h-[calc(100vh-70px)] overflow-y-auto">
                 {selectedProject && phases.length > 0 ? (
-                  <div className="space-y-4">
+                  <div className="space-y-4 max-w-5xl">
                     {/* Tree */}
-                    <div className="bg-white dark:bg-slate-800 rounded shadow p-4">
-                      <h2 className="font-bold mb-3">📋 هيكل المشروع</h2>
-                      <div className="space-y-1">
+                    <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-5">
+                      <h2 className="font-bold mb-4 text-lg">📊 هيكل المشروع</h2>
+                      <div className="space-y-2">
                         {phases.map(phase => (
-                          <div key={phase.id} className="border border-slate-200 dark:border-slate-700 rounded overflow-hidden">
+                          <div key={phase.id} className="border border-slate-200 rounded">
                             <button
                               onClick={() => togglePhase(phase.id)}
-                              className="w-full flex items-center justify-between p-3 hover:bg-slate-50 dark:hover:bg-slate-700 text-sm"
+                              className="w-full flex items-center justify-between p-3 hover:bg-slate-50 text-sm font-medium"
                             >
-                              <span className="font-medium">
-                                {expandedPhases.has(phase.id) ? '▼' : '▶'} {phase.phase_name}
-                              </span>
-                              <span className="text-xs bg-yellow-100 dark:bg-yellow-900/30 px-2 py-1 rounded">
-                                {phase.project_packages?.length || 0} حزمة
+                              <span>{expandedPhases.has(phase.id) ? '▼' : '▶'} {phase.phase_name}</span>
+                              <span className="bg-yellow-100 text-yellow-700 text-xs px-2 py-1 rounded">
+                                {phase.project_packages?.length || 0}
                               </span>
                             </button>
 
                             {expandedPhases.has(phase.id) && (
-                              <div className="border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/30">
+                              <div className="border-t border-slate-200 bg-slate-50">
                                 {phase.project_packages?.map(pkg => (
                                   <div key={pkg.id}>
                                     <button
                                       onClick={() => togglePackage(pkg.id)}
-                                      className="w-full flex items-center justify-between p-3 hover:bg-slate-100 dark:hover:bg-slate-700 text-sm border-b border-slate-200 dark:border-slate-700"
+                                      className="w-full flex items-center justify-between p-3 hover:bg-slate-100 text-sm border-b border-slate-200 ml-4"
                                     >
-                                      <span className="font-medium ml-4">
-                                        {expandedPackages.has(pkg.id) ? '▼' : '▶'} {pkg.package_name}
-                                      </span>
-                                      <span className="text-xs text-blue-600 font-semibold">
-                                        {pkg.budget_estimated?.toLocaleString() || 0} ريال
-                                      </span>
+                                      <span>{expandedPackages.has(pkg.id) ? '▼' : '▶'} {pkg.package_name}</span>
+                                      <span className="text-blue-600 font-bold text-xs">{pkg.budget_estimated || 0} ر.س</span>
                                     </button>
 
                                     {expandedPackages.has(pkg.id) && (
-                                      <div className="bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700">
+                                      <div className="bg-white border-t border-slate-200">
                                         {pkg.finishing_items?.map(item => (
                                           <button
                                             key={item.id}
                                             onClick={() => setSelectedItem(item)}
-                                            className="w-full text-left p-3 border-b border-slate-200 dark:border-slate-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-xs ml-8"
+                                            className="w-full text-left p-3 border-b border-slate-200 hover:bg-blue-50 text-xs ml-8"
                                           >
-                                            <p className="font-medium">{item.item_name}</p>
-                                            <p className="text-slate-600 dark:text-slate-400">
-                                              الكمية: {item.quantity} {item.unit_of_measure}
-                                            </p>
-                                            <p className="text-slate-600 dark:text-slate-400">
-                                              الماركة: {item.proposed_brand || 'قيد التحديد'}
-                                            </p>
-                                            <p className="text-blue-600 font-semibold mt-1">
-                                              {item.total_price_estimated?.toLocaleString() || 0} ريال
-                                            </p>
+                                            <p className="font-bold">{item.item_name}</p>
+                                            <p className="text-slate-600">الكمية: {item.quantity} {item.unit_of_measure}</p>
+                                            <p className="text-slate-600">الماركة: {item.proposed_brand || 'قيد التحديد'}</p>
+                                            <p className="text-blue-600 font-bold mt-1">{item.total_price_estimated || 0} ريال</p>
                                           </button>
                                         ))}
                                       </div>
@@ -311,64 +297,45 @@
                     </div>
 
                     {/* Budget */}
-                    <div className="bg-white dark:bg-slate-800 rounded shadow p-4">
-                      <h2 className="font-bold mb-3">💰 الميزانية</h2>
-                      <div className="grid grid-cols-1 gap-2">
-                        <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded border border-blue-200 dark:border-blue-800 text-sm">
-                          <p className="text-blue-600 dark:text-blue-400 text-xs">الميزانية المقدرة</p>
-                          <p className="font-bold text-blue-900 dark:text-blue-200">
-                            {budget.estimated.toLocaleString()} ريال
+                    <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-5">
+                      <h2 className="font-bold mb-4 text-lg">💰 الميزانية</h2>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="bg-blue-50 p-4 rounded border border-blue-200">
+                          <p className="text-blue-600 text-xs font-bold mb-1">المقدرة</p>
+                          <p className="font-bold text-blue-900 text-lg">{budget.estimated.toLocaleString()} ريال</p>
+                        </div>
+                        <div className="bg-yellow-50 p-4 rounded border border-yellow-200">
+                          <p className="text-yellow-600 text-xs font-bold mb-1">المعدلة</p>
+                          <p className="font-bold text-yellow-900 text-lg">{budget.revised.toLocaleString()} ريال</p>
+                          <p className="text-xs mt-1 font-bold" style={{ color: variance < 0 ? '#16a34a' : '#dc2626' }}>
+                            {variance < 0 ? '📉' : '📈'} {variance}%
                           </p>
                         </div>
-                        <div className="bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded border border-yellow-200 dark:border-yellow-800 text-sm">
-                          <p className="text-yellow-600 dark:text-yellow-400 text-xs">الميزانية المعدلة</p>
-                          <p className="font-bold text-yellow-900 dark:text-yellow-200">
-                            {budget.revised.toLocaleString()} ريال
-                          </p>
-                          <p className="text-xs mt-1 text-orange-600 dark:text-orange-400">
-                            الفرق: {variance}%
-                          </p>
-                        </div>
-                        <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded border border-green-200 dark:border-green-800 text-sm">
-                          <p className="text-green-600 dark:text-green-400 text-xs">المبلغ المنصرف</p>
-                          <p className="font-bold text-green-900 dark:text-green-200">
-                            {budget.actual.toLocaleString()} ريال
-                          </p>
+                        <div className="bg-green-50 p-4 rounded border border-green-200">
+                          <p className="text-green-600 text-xs font-bold mb-1">المنصرف</p>
+                          <p className="font-bold text-green-900 text-lg">{budget.actual.toLocaleString()} ريال</p>
                         </div>
                       </div>
                     </div>
 
-                    {/* Item Details */}
+                    {/* Details */}
                     {selectedItem && (
-                      <div className="bg-white dark:bg-slate-800 rounded shadow p-4">
-                        <h2 className="font-bold mb-3">📝 تفاصيل العنصر</h2>
-                        <div className="space-y-2 text-sm">
-                          <div>
-                            <p className="text-slate-600 dark:text-slate-400 text-xs">الاسم</p>
-                            <p className="font-semibold">{selectedItem.item_name}</p>
-                          </div>
-                          <div>
-                            <p className="text-slate-600 dark:text-slate-400 text-xs">الكمية</p>
-                            <p className="font-semibold">{selectedItem.quantity} {selectedItem.unit_of_measure}</p>
-                          </div>
-                          <div>
-                            <p className="text-slate-600 dark:text-slate-400 text-xs">الماركة</p>
-                            <p className="font-semibold">{selectedItem.proposed_brand || 'قيد التحديد'}</p>
-                          </div>
-                          <div>
-                            <p className="text-slate-600 dark:text-slate-400 text-xs">الجودة</p>
-                            <p className="font-semibold">{selectedItem.quality_grade || 'عادية'}</p>
-                          </div>
-                          <div>
-                            <p className="text-slate-600 dark:text-slate-400 text-xs">الملاحظات</p>
-                            <p className="text-sm">{selectedItem.notes || 'لا توجد ملاحظات'}</p>
-                          </div>
+                      <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-5">
+                        <h2 className="font-bold mb-4 text-lg">📝 تفاصيل العنصر</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                          <div><p className="text-slate-600 text-xs font-bold">الاسم</p><p className="font-bold">{selectedItem.item_name}</p></div>
+                          <div><p className="text-slate-600 text-xs font-bold">الكمية</p><p className="font-bold">{selectedItem.quantity} {selectedItem.unit_of_measure}</p></div>
+                          <div><p className="text-slate-600 text-xs font-bold">الماركة</p><p className="font-bold">{selectedItem.proposed_brand || 'قيد التحديد'}</p></div>
+                          <div><p className="text-slate-600 text-xs font-bold">الجودة</p><p className="font-bold">{selectedItem.quality_grade || 'عادية'}</p></div>
+                          <div><p className="text-slate-600 text-xs font-bold">السعر المقدر</p><p className="font-bold text-blue-600">{selectedItem.total_price_estimated?.toLocaleString() || 0} ريال</p></div>
+                          <div><p className="text-slate-600 text-xs font-bold">الأبعاد</p><p className="font-bold">{selectedItem.size_dimensions || 'قياسية'}</p></div>
                         </div>
                       </div>
                     )}
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center h-96">
+                    <div className="text-5xl mb-4">📊</div>
                     <p className="text-slate-600">{error || 'لا توجد بيانات'}</p>
                   </div>
                 )}
