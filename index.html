@@ -1,1 +1,311 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>منصة إدارة الفلل</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <style>
+    * { direction: rtl; margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const SUPABASE_URL = 'https://ckggajkwgfqoddyhypjp.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNrZ2dhanR3Z2Zxb2RkeWhzcGp0IiwiYXVkIjoiYXV0aGVudGljYXRlZCIsImV4cCI6MTc4NzA0OTYwMCwiaWF0IjoxNzE5NTEzNjAwLCJlbWFpbCIiLCJzdWIiOiIxMjM0NTY3ODkwIiwiYXBwX21ldGFkYXRhIjp7InByb3ZpZGVyIjoic3VwYWJhc2UiLCJwcm92aWRlcnMiOlsic3VwYWJhc2UiXX0sInVzZXJfbWV0YWRhdGEiOnt9LCJyb2xlIjoiYXV0aGVudGljYXRlZCIsInNlc3Npb25faWQiOiIxMjM0NTY3ODkwLXNlc3Npb24ifQ.signed';
+
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    function App() {
+      const [darkMode, setDarkMode] = useState(localStorage.getItem('darkMode') === 'true');
+      const [sidebarOpen, setSidebarOpen] = useState(true);
+      const [projects, setProjects] = useState([]);
+      const [selectedProject, setSelectedProject] = useState(null);
+      const [phases, setPhases] = useState([]);
+      const [expandedPhases, setExpandedPhases] = useState(new Set());
+      const [expandedPackages, setExpandedPackages] = useState(new Set());
+      const [budget, setBudget] = useState({ estimated: 0, revised: 0, actual: 0 });
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      const [selectedItem, setSelectedItem] = useState(null);
+
+      useEffect(() => {
+        loadProjects();
+      }, []);
+
+      useEffect(() => {
+        if (selectedProject) {
+          loadProjectData(selectedProject);
+        }
+      }, [selectedProject]);
+
+      useEffect(() => {
+        localStorage.setItem('darkMode', darkMode);
+        document.documentElement.classList.toggle('dark', darkMode);
+      }, [darkMode]);
+
+      const loadProjects = async () => {
+        try {
+          setLoading(true);
+          const { data, error: err } = await supabase.from('projects').select('*').limit(100);
+          
+          if (err) {
+            setError(err.message);
+            console.error('Error:', err);
+          } else {
+            setProjects(data || []);
+            if (data && data.length > 0) {
+              setSelectedProject(data[0].id);
+            }
+          }
+        } catch (e) {
+          setError(e.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const loadProjectData = async (projectId) => {
+        try {
+          const { data, error: err } = await supabase
+            .from('project_phases')
+            .select(`
+              id, phase_code, phase_name, phase_order, status,
+              project_packages (
+                id, package_code, package_name, status, budget_estimated, budget_revised, budget_actual,
+                finishing_items (
+                  id, item_name, item_code, category, quantity, unit_of_measure,
+                  proposed_brand, quality_grade, size_dimensions,
+                  total_price_estimated, total_price_revised, total_price_actual, status, notes
+                )
+              )
+            `)
+            .eq('project_id', projectId)
+            .order('phase_order', { ascending: true });
+
+          if (err) {
+            setError(err.message);
+          } else {
+            setPhases(data || []);
+            
+            let totalEst = 0, totalRev = 0, totalAct = 0;
+            data?.forEach(phase => {
+              phase.project_packages?.forEach(pkg => {
+                totalEst += pkg.budget_estimated || 0;
+                totalRev += pkg.budget_revised || pkg.budget_estimated || 0;
+                totalAct += pkg.budget_actual || 0;
+              });
+            });
+            setBudget({ estimated: totalEst, revised: totalRev, actual: totalAct });
+          }
+        } catch (e) {
+          setError(e.message);
+        }
+      };
+
+      const togglePhase = (id) => {
+        const newSet = new Set(expandedPhases);
+        newSet.has(id) ? newSet.delete(id) : newSet.add(id);
+        setExpandedPhases(newSet);
+      };
+
+      const togglePackage = (id) => {
+        const newSet = new Set(expandedPackages);
+        newSet.has(id) ? newSet.delete(id) : newSet.add(id);
+        setExpandedPackages(newSet);
+      };
+
+      const variance = budget.revised > 0 
+        ? ((budget.revised - budget.estimated) / budget.estimated * 100).toFixed(1) 
+        : 0;
+
+      if (loading) {
+        return (
+          <div className="flex items-center justify-center min-h-screen bg-slate-50 dark:bg-slate-900">
+            <div className="text-4xl">⚙️</div>
+          </div>
+        );
+      }
+
+      return (
+        <div className={darkMode ? 'dark' : ''}>
+          <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
+            {/* Header */}
+            <header className="bg-white dark:bg-slate-800 border-b border-slate-200 sticky top-0 z-40 p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setSidebarOpen(!sidebarOpen)}
+                    className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"
+                  >
+                    ☰
+                  </button>
+                  <h1 className="text-xl font-bold">منصة الفلل</h1>
+                </div>
+                <button
+                  onClick={() => setDarkMode(!darkMode)}
+                  className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"
+                >
+                  {darkMode ? '☀️' : '🌙'}
+                </button>
+              </div>
+            </header>
+
+            {/* Content */}
+            <div className="flex">
+              {/* Sidebar */}
+              {sidebarOpen && (
+                <aside className="w-72 bg-white dark:bg-slate-800 border-r border-slate-200 p-4 max-h-[calc(100vh-70px)] overflow-y-auto">
+                  <h2 className="text-lg font-bold mb-4">المشاريع</h2>
+                  
+                  {error && (
+                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 p-3 rounded mb-4 text-sm text-red-600">
+                      ❌ {error}
+                    </div>
+                  )}
+                  
+                  <div className="space-y-2">
+                    {projects.map(project => (
+                      <button
+                        key={project.id}
+                        onClick={() => setSelectedProject(project.id)}
+                        className={`w-full text-left p-3 rounded border transition ${
+                          selectedProject === project.id
+                            ? 'bg-blue-100 dark:bg-blue-900/40 border-blue-300'
+                            : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200'
+                        }`}
+                      >
+                        <p className="font-medium text-sm">{project.name}</p>
+                        <p className="text-xs text-slate-600">{project.location}</p>
+                      </button>
+                    ))}
+                  </div>
+                </aside>
+              )}
+
+              {/* Main */}
+              <main className="flex-1 p-4 max-h-[calc(100vh-70px)] overflow-y-auto">
+                {selectedProject && phases.length > 0 ? (
+                  <div className="space-y-4">
+                    {/* Tree */}
+                    <div className="bg-white dark:bg-slate-800 rounded shadow p-4">
+                      <h2 className="font-bold mb-3">هيكل المشروع</h2>
+                      <div className="space-y-1">
+                        {phases.map(phase => (
+                          <div key={phase.id} className="border border-slate-200 rounded">
+                            <button
+                              onClick={() => togglePhase(phase.id)}
+                              className="w-full flex items-center justify-between p-3 hover:bg-slate-50 text-sm"
+                            >
+                              <span>{expandedPhases.has(phase.id) ? '▼' : '▶'} {phase.phase_name}</span>
+                              <span className="text-xs bg-yellow-100 px-2 py-1 rounded">{phase.project_packages?.length || 0}</span>
+                            </button>
+
+                            {expandedPhases.has(phase.id) && (
+                              <div className="border-t border-slate-200 bg-slate-50">
+                                {phase.project_packages?.map(pkg => (
+                                  <div key={pkg.id}>
+                                    <button
+                                      onClick={() => togglePackage(pkg.id)}
+                                      className="w-full flex items-center justify-between p-3 hover:bg-slate-100 text-sm border-b border-slate-200 ml-4"
+                                    >
+                                      <span>{expandedPackages.has(pkg.id) ? '▼' : '▶'} {pkg.package_name}</span>
+                                      <span className="text-xs text-blue-600 font-semibold">{pkg.budget_estimated || 0}ر</span>
+                                    </button>
+
+                                    {expandedPackages.has(pkg.id) && (
+                                      <div className="bg-white ml-4 border-t border-slate-200">
+                                        {pkg.finishing_items?.map(item => (
+                                          <button
+                                            key={item.id}
+                                            onClick={() => setSelectedItem(item)}
+                                            className="w-full text-left p-3 border-b border-slate-200 hover:bg-blue-50 text-xs"
+                                          >
+                                            <p className="font-medium">{item.item_name}</p>
+                                            <p className="text-slate-600">الكمية: {item.quantity} {item.unit_of_measure}</p>
+                                            <p className="text-slate-600">الماركة: {item.proposed_brand || 'قيد التحديد'}</p>
+                                            <p className="text-blue-600 font-semibold mt-1">{item.total_price_estimated || 0} ريال</p>
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Budget */}
+                    <div className="bg-white dark:bg-slate-800 rounded shadow p-4">
+                      <h2 className="font-bold mb-3">الميزانية</h2>
+                      <div className="grid grid-cols-1 gap-2">
+                        <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded border border-blue-200 text-sm">
+                          <p className="text-blue-600 text-xs">الميزانية المقدرة</p>
+                          <p className="font-bold text-blue-900">{budget.estimated.toLocaleString()} ريال</p>
+                        </div>
+                        <div className="bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded border border-yellow-200 text-sm">
+                          <p className="text-yellow-600 text-xs">الميزانية المعدلة</p>
+                          <p className="font-bold text-yellow-900">{budget.revised.toLocaleString()} ريال</p>
+                          <p className="text-xs mt-1 text-orange-600">الفرق: {variance}%</p>
+                        </div>
+                        <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded border border-green-200 text-sm">
+                          <p className="text-green-600 text-xs">المبلغ المنصرف</p>
+                          <p className="font-bold text-green-900">{budget.actual.toLocaleString()} ريال</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Item Details */}
+                    {selectedItem && (
+                      <div className="bg-white dark:bg-slate-800 rounded shadow p-4">
+                        <h2 className="font-bold mb-3">تفاصيل العنصر</h2>
+                        <div className="space-y-2 text-sm">
+                          <div>
+                            <p className="text-slate-600 text-xs">الاسم</p>
+                            <p className="font-semibold">{selectedItem.item_name}</p>
+                          </div>
+                          <div>
+                            <p className="text-slate-600 text-xs">الكمية</p>
+                            <p className="font-semibold">{selectedItem.quantity} {selectedItem.unit_of_measure}</p>
+                          </div>
+                          <div>
+                            <p className="text-slate-600 text-xs">الماركة</p>
+                            <p className="font-semibold">{selectedItem.proposed_brand || 'قيد التحديد'}</p>
+                          </div>
+                          <div>
+                            <p className="text-slate-600 text-xs">الملاحظات</p>
+                            <p className="text-sm">{selectedItem.notes || 'لا توجد ملاحظات'}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-96">
+                    <p className="text-slate-600">{error || 'لا توجد بيانات'}</p>
+                  </div>
+                )}
+              </main>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
 
