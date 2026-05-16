@@ -5,10 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>منصة إدارة الفلل</title>
   
+  <!-- React -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <!-- Babel -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Supabase -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   
   <style>
@@ -25,148 +32,77 @@
     const SUPABASE_URL = 'https://ckggajkwgfqoddyhypjp.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_iZ9WrOLC5gMfrXZpL7JV-A_Vy1ve5LQ';
 
-    function App() {
-      const [darkMode, setDarkMode] = useState(localStorage.getItem('darkMode') === 'true');
-      const [sidebarOpen, setSidebarOpen] = useState(false);
-      const [projects, setProjects] = useState([]);
-      const [selectedProject, setSelectedProject] = useState(null);
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    // Icons (بسيطة بدون مكتبة)
+    const ChevronDown = () => <span>▼</span>;
+    const ChevronUp = () => <span>▲</span>;
+    const Menu = () => <span>☰</span>;
+    const Moon = () => <span>🌙</span>;
+    const Sun = () => <span>☀️</span>;
+    const Building2 = () => <span>🏢</span>;
+    const BarChart3 = () => <span>📊</span>;
+    const Package = () => <span>📦</span>;
+
+    function ProjectTree({ projectId, onBudgetUpdate, onItemSelect }) {
       const [phases, setPhases] = useState([]);
       const [expandedPhases, setExpandedPhases] = useState(new Set());
       const [expandedPackages, setExpandedPackages] = useState(new Set());
-      const [budget, setBudget] = useState({ estimated: 0, revised: 0, actual: 0 });
       const [loading, setLoading] = useState(true);
-      const [error, setError] = useState(null);
-      const [selectedItem, setSelectedItem] = useState(null);
-      const [supabase, setSupabase] = useState(null);
 
       useEffect(() => {
-        initSupabase();
-      }, []);
+        loadProjectData();
+      }, [projectId]);
 
-      const initSupabase = async () => {
-        try {
-          const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-          setSupabase(client);
-          console.log('✅ Supabase initialized');
-          await loadProjects(client);
-        } catch (e) {
-          console.error('❌', e);
-          setError('خطأ: ' + e.message);
-          setLoading(false);
-        }
-      };
-
-      const loadProjects = async (client) => {
+      const loadProjectData = async () => {
         try {
           setLoading(true);
-          const { data, error: err } = await client.from('projects').select('*');
-          
-          if (err) {
-            setError('❌ ' + err.message);
-            setLoading(false);
-            return;
-          }
 
-          if (data && data.length > 0) {
-            setProjects(data);
-            setSelectedProject(data[0].id);
-            setError(null);
-          } else {
-            setError('لا توجد مشاريع');
-          }
-        } catch (e) {
-          setError('❌ ' + e.message);
-        } finally {
-          setLoading(false);
-        }
-      };
-
-      useEffect(() => {
-        if (selectedProject && supabase) {
-          loadProjectData(supabase, selectedProject);
-        }
-      }, [selectedProject, supabase]);
-
-      const loadProjectData = async (client, projectId) => {
-        try {
-          // جلب المراحل مع الحزم
-          const { data: phasesData, error: phasesErr } = await client
+          const { data: phasesData } = await supabase
             .from('project_phases')
             .select('*')
             .eq('project_id', projectId)
             .order('phase_number', { ascending: true });
 
-          if (phasesErr) {
-            setError('❌ ' + phasesErr.message);
-            return;
-          }
+          const phasesWithData = await Promise.all(
+            (phasesData || []).map(async (phase) => {
+              const { data: packages } = await supabase
+                .from('project_packages')
+                .select('*')
+                .eq('phase_id', phase.id);
 
-          setPhases(phasesData || []);
+              const packagesWithData = await Promise.all(
+                (packages || []).map(async (pkg) => {
+                  const { data: subcategories } = await supabase
+                    .from('package_subcategories')
+                    .select('*')
+                    .eq('package_id', pkg.id);
 
-          // جلب الحزم لكل مرحلة
-          if (phasesData && phasesData.length > 0) {
-            const phasesWithPackages = await Promise.all(
-              phasesData.map(async (phase) => {
-                const { data: packages } = await client
-                  .from('project_packages')
-                  .select('*')
-                  .eq('phase_id', phase.id);
+                  const subcategoriesWithItems = await Promise.all(
+                    (subcategories || []).map(async (sub) => {
+                      const { data: items } = await supabase
+                        .from('project_items')
+                        .select('*')
+                        .eq('subcategory_id', sub.id);
 
-                // جلب العناصر لكل حزمة
-                const packagesWithItems = await Promise.all(
-                  (packages || []).map(async (pkg) => {
-                    const { data: subcategories } = await client
-                      .from('package_subcategories')
-                      .select('*')
-                      .eq('package_id', pkg.id);
+                      return { ...sub, items: items || [] };
+                    })
+                  );
 
-                    const subcategoriesWithItems = await Promise.all(
-                      (subcategories || []).map(async (sub) => {
-                        const { data: items } = await client
-                          .from('project_items')
-                          .select('*')
-                          .eq('subcategory_id', sub.id);
+                  return { ...pkg, subcategories: subcategoriesWithItems };
+                })
+              );
 
-                        return {
-                          ...sub,
-                          items: items || []
-                        };
-                      })
-                    );
+              return { ...phase, packages: packagesWithData };
+            })
+          );
 
-                    return {
-                      ...pkg,
-                      subcategories: subcategoriesWithItems
-                    };
-                  })
-                );
-
-                return {
-                  ...phase,
-                  packages: packagesWithItems
-                };
-              })
-            );
-
-            setPhases(phasesWithPackages);
-
-            // حساب الميزانية
-            let totalEst = 0;
-            phasesWithPackages.forEach(phase => {
-              phase.packages?.forEach(pkg => {
-                pkg.subcategories?.forEach(sub => {
-                  sub.items?.forEach(item => {
-                    totalEst += (item.estimated_total || item.estimated_quantity * item.estimated_unit_price || 0);
-                  });
-                });
-              });
-            });
-
-            setBudget({ estimated: totalEst, revised: totalEst, actual: 0 });
-          }
-        } catch (e) {
-          console.error('❌', e);
-          setError('❌ ' + e.message);
+          setPhases(phasesWithData);
+          onBudgetUpdate(phasesWithData);
+        } catch (error) {
+          console.error('خطأ:', error);
+        } finally {
+          setLoading(false);
         }
       };
 
@@ -184,10 +120,149 @@
 
       if (loading) {
         return (
-          <div className="flex items-center justify-center min-h-screen bg-slate-50">
+          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6">
+            <div className="animate-pulse space-y-3">
+              <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-1/4"></div>
+              <div className="h-12 bg-slate-200 dark:bg-slate-700 rounded"></div>
+              <div className="h-12 bg-slate-200 dark:bg-slate-700 rounded"></div>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-5">
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-4">📊 هيكل المشروع</h2>
+          <div className="space-y-2">
+            {phases.map(phase => (
+              <div key={phase.id} className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+                {/* Phase */}
+                <button
+                  onClick={() => togglePhase(phase.id)}
+                  className="w-full flex items-center justify-between p-3 hover:bg-slate-50 dark:hover:bg-slate-700 text-sm font-medium text-slate-900 dark:text-white"
+                >
+                  <span className="flex items-center gap-2">
+                    {expandedPhases.has(phase.id) ? <ChevronUp /> : <ChevronDown />}
+                    <Package />
+                    {phase.name_ar}
+                  </span>
+                  <span className="bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 text-xs px-2 py-1 rounded">
+                    {phase.packages?.length || 0}
+                  </span>
+                </button>
+
+                {/* Packages */}
+                {expandedPhases.has(phase.id) && (
+                  <div className="border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/30">
+                    {phase.packages?.map(pkg => (
+                      <div key={pkg.id}>
+                        <button
+                          onClick={() => togglePackage(pkg.id)}
+                          className="w-full flex items-center justify-between p-3 hover:bg-slate-100 dark:hover:bg-slate-700 text-sm border-b border-slate-200 dark:border-slate-700 ml-4 text-slate-900 dark:text-white"
+                        >
+                          <span className="flex items-center gap-2">
+                            {expandedPackages.has(pkg.id) ? <ChevronUp /> : <ChevronDown />}
+                            {pkg.name_ar}
+                          </span>
+                          <span className="text-xs text-slate-600 dark:text-slate-300">{pkg.subcategories?.length || 0}</span>
+                        </button>
+
+                        {/* Subcategories */}
+                        {expandedPackages.has(pkg.id) && (
+                          <div className="border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                            {pkg.subcategories?.map(sub => (
+                              <div key={sub.id}>
+                                <div className="p-3 ml-8 bg-blue-50 dark:bg-blue-900/20 border-b border-slate-200 dark:border-slate-700 text-sm font-medium text-slate-900 dark:text-white">
+                                  {sub.name_ar}
+                                </div>
+
+                                {/* Items */}
+                                {sub.items?.map(item => (
+                                  <button
+                                    key={item.id}
+                                    onClick={() => onItemSelect(item)}
+                                    className="w-full text-left p-3 border-b border-slate-200 dark:border-slate-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-xs ml-16"
+                                  >
+                                    <p className="font-bold text-slate-900 dark:text-white">{item.title_ar}</p>
+                                    <p className="text-slate-600 dark:text-slate-300">الكمية: {item.quantity} {item.unit}</p>
+                                    <p className="text-blue-600 dark:text-blue-300 font-bold mt-1">
+                                      💵 {(item.estimated_total || item.quantity * item.unit_price || 0).toLocaleString()} ريال
+                                    </p>
+                                  </button>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    function App() {
+      const [darkMode, setDarkMode] = useState(localStorage.getItem('darkMode') === 'true');
+      const [sidebarOpen, setSidebarOpen] = useState(false);
+      const [projects, setProjects] = useState([]);
+      const [selectedProject, setSelectedProject] = useState(null);
+      const [budget, setBudget] = useState({ estimated: 0, revised: 0, actual: 0 });
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      const [selectedItem, setSelectedItem] = useState(null);
+
+      useEffect(() => {
+        loadProjects();
+      }, []);
+
+      useEffect(() => {
+        localStorage.setItem('darkMode', darkMode);
+        document.documentElement.classList.toggle('dark', darkMode);
+      }, [darkMode]);
+
+      const loadProjects = async () => {
+        try {
+          setLoading(true);
+          const { data } = await supabase.from('projects').select('*');
+
+          if (data && data.length > 0) {
+            setProjects(data);
+            setSelectedProject(data[0].id);
+            setError(null);
+          } else {
+            setError('لا توجد مشاريع');
+          }
+        } catch (e) {
+          setError('❌ ' + e.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const calculateBudget = (phases) => {
+        let totalEst = 0;
+        phases.forEach(phase => {
+          phase.packages?.forEach(pkg => {
+            pkg.subcategories?.forEach(sub => {
+              sub.items?.forEach(item => {
+                totalEst += item.estimated_total || (item.quantity * item.unit_price) || 0;
+              });
+            });
+          });
+        });
+        return { estimated: totalEst, revised: totalEst, actual: 0 };
+      };
+
+      if (loading) {
+        return (
+          <div className="flex items-center justify-center min-h-screen bg-slate-50 dark:bg-slate-900">
             <div className="text-center">
               <div className="text-5xl mb-4 animate-spin">⚙️</div>
-              <p className="text-slate-600">جاري التحميل...</p>
+              <p className="text-slate-600 dark:text-slate-300">جاري التحميل...</p>
             </div>
           </div>
         );
@@ -197,22 +272,23 @@
         <div className={darkMode ? 'dark' : ''}>
           <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
             {/* Header */}
-            <header className="bg-white dark:bg-slate-800 border-b p-4 sticky top-0 z-40">
+            <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-40 p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => setSidebarOpen(!sidebarOpen)}
-                    className="p-2 hover:bg-slate-100 rounded"
+                    className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-900 dark:text-white"
                   >
-                    ☰
+                    <Menu />
                   </button>
-                  <h1 className="text-xl font-bold">🏢 منصة الفلل</h1>
+                  <Building2 />
+                  <h1 className="text-xl font-bold text-slate-900 dark:text-white">منصة إدارة الفلل</h1>
                 </div>
                 <button
                   onClick={() => setDarkMode(!darkMode)}
-                  className="p-2 hover:bg-slate-100 rounded text-xl"
+                  className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-2xl"
                 >
-                  {darkMode ? '☀️' : '🌙'}
+                  {darkMode ? <Sun /> : <Moon />}
                 </button>
               </div>
             </header>
@@ -221,24 +297,28 @@
             <div className="flex">
               {/* Sidebar */}
               {sidebarOpen && (
-                <aside className="w-80 bg-white dark:bg-slate-800 border-r p-4 max-h-[calc(100vh-70px)] overflow-y-auto">
-                  <h2 className="text-lg font-bold mb-4">📋 المشاريع</h2>
-                  
-                  {error && <div className="bg-red-50 p-3 rounded text-red-600 text-sm mb-4">{error}</div>}
-                  
+                <aside className="w-80 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 p-4 max-h-[calc(100vh-70px)] overflow-y-auto">
+                  <h2 className="text-lg font-bold mb-4 text-slate-900 dark:text-white">📋 المشاريع</h2>
+
+                  {error && (
+                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3 rounded mb-4 text-sm text-red-600 dark:text-red-300">
+                      {error}
+                    </div>
+                  )}
+
                   <div className="space-y-2">
                     {projects.map(project => (
                       <button
                         key={project.id}
                         onClick={() => setSelectedProject(project.id)}
-                        className={`w-full text-left p-3 rounded border ${
+                        className={`w-full text-left p-3 rounded-lg border transition ${
                           selectedProject === project.id
-                            ? 'bg-blue-100 border-blue-400'
-                            : 'bg-blue-50 border-blue-200 hover:bg-blue-100'
+                            ? 'bg-blue-100 dark:bg-blue-900/40 border-blue-400 dark:border-blue-600'
+                            : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/30'
                         }`}
                       >
-                        <p className="font-bold">{project.name}</p>
-                        <p className="text-xs text-slate-600">{project.location_city}</p>
+                        <p className="font-bold text-slate-900 dark:text-white">{project.name}</p>
+                        <p className="text-xs text-slate-600 dark:text-slate-300">{project.location_city}</p>
                       </button>
                     ))}
                   </div>
@@ -247,117 +327,50 @@
 
               {/* Main */}
               <main className="flex-1 p-4 max-h-[calc(100vh-70px)] overflow-y-auto">
-                {selectedProject && phases.length > 0 ? (
+                {selectedProject ? (
                   <div className="space-y-4 max-w-6xl">
-                    {/* Tree */}
-                    <div className="bg-white dark:bg-slate-800 rounded shadow p-5">
-                      <h2 className="font-bold mb-4 text-lg">📊 هيكل المشروع</h2>
-                      <div className="space-y-2">
-                        {phases.map(phase => (
-                          <div key={phase.id} className="border rounded overflow-hidden">
-                            {/* Phase */}
-                            <button
-                              onClick={() => togglePhase(phase.id)}
-                              className="w-full flex items-center justify-between p-3 hover:bg-slate-50 text-sm font-medium"
-                            >
-                              <span>
-                                {expandedPhases.has(phase.id) ? '▼' : '▶'} {phase.name_ar}
-                              </span>
-                              <span className="bg-yellow-100 text-yellow-700 text-xs px-2 py-1 rounded">
-                                {phase.packages?.length || 0}
-                              </span>
-                            </button>
-
-                            {expandedPhases.has(phase.id) && (
-                              <div className="border-t bg-slate-50">
-                                {phase.packages?.map(pkg => (
-                                  <div key={pkg.id}>
-                                    {/* Package */}
-                                    <button
-                                      onClick={() => togglePackage(pkg.id)}
-                                      className="w-full flex items-center justify-between p-3 hover:bg-slate-100 text-sm border-b ml-4"
-                                    >
-                                      <span>
-                                        {expandedPackages.has(pkg.id) ? '▼' : '▶'} {pkg.name_ar}
-                                      </span>
-                                      <span className="text-xs text-slate-600">
-                                        {pkg.subcategories?.length || 0} تصنيف
-                                      </span>
-                                    </button>
-
-                                    {expandedPackages.has(pkg.id) && (
-                                      <div className="bg-white border-t">
-                                        {pkg.subcategories?.map(sub => (
-                                          <div key={sub.id}>
-                                            {/* Subcategory */}
-                                            <div className="p-3 ml-8 border-b bg-blue-50 font-medium text-sm">
-                                              {sub.name_ar}
-                                            </div>
-
-                                            {/* Items */}
-                                            {sub.items?.map(item => (
-                                              <button
-                                                key={item.id}
-                                                onClick={() => setSelectedItem(item)}
-                                                className="w-full text-left p-3 border-b hover:bg-blue-50 text-xs ml-16 transition"
-                                              >
-                                                <p className="font-bold">{item.title_ar}</p>
-                                                <p className="text-slate-600">الكمية: {item.quantity} {item.unit}</p>
-                                                <p className="text-blue-600 font-bold mt-1">
-                                                  💵 {(item.estimated_total || item.quantity * item.unit_price || 0).toLocaleString()} ريال
-                                                </p>
-                                              </button>
-                                            ))}
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                    {/* Project Tree */}
+                    <ProjectTree
+                      projectId={selectedProject}
+                      onBudgetUpdate={(phases) => setBudget(calculateBudget(phases))}
+                      onItemSelect={setSelectedItem}
+                    />
 
                     {/* Budget */}
-                    <div className="bg-white dark:bg-slate-800 rounded shadow p-5">
-                      <h2 className="font-bold mb-4">💰 الميزانية</h2>
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="bg-blue-50 p-4 rounded border border-blue-200">
-                          <p className="text-blue-600 text-xs font-bold">المقدرة</p>
-                          <p className="font-bold text-lg">{budget.estimated.toLocaleString()}</p>
+                    <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-5">
+                      <h2 className="text-lg font-bold mb-4 text-slate-900 dark:text-white">💰 الميزانية</h2>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded border border-blue-200 dark:border-blue-800">
+                          <p className="text-blue-600 dark:text-blue-300 text-xs font-bold">المقدرة</p>
+                          <p className="font-bold text-lg text-slate-900 dark:text-white">{budget.estimated.toLocaleString()}</p>
                         </div>
-                        <div className="bg-yellow-50 p-4 rounded border border-yellow-200">
-                          <p className="text-yellow-600 text-xs font-bold">المعدلة</p>
-                          <p className="font-bold text-lg">{budget.revised.toLocaleString()}</p>
+                        <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded border border-yellow-200 dark:border-yellow-800">
+                          <p className="text-yellow-600 dark:text-yellow-300 text-xs font-bold">المعدلة</p>
+                          <p className="font-bold text-lg text-slate-900 dark:text-white">{budget.revised.toLocaleString()}</p>
                         </div>
-                        <div className="bg-green-50 p-4 rounded border border-green-200">
-                          <p className="text-green-600 text-xs font-bold">المنصرف</p>
-                          <p className="font-bold text-lg">{budget.actual.toLocaleString()}</p>
+                        <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded border border-green-200 dark:border-green-800">
+                          <p className="text-green-600 dark:text-green-300 text-xs font-bold">المنصرف</p>
+                          <p className="font-bold text-lg text-slate-900 dark:text-white">{budget.actual.toLocaleString()}</p>
                         </div>
                       </div>
                     </div>
 
                     {/* Details */}
                     {selectedItem && (
-                      <div className="bg-white dark:bg-slate-800 rounded shadow p-5">
-                        <h2 className="font-bold mb-4">📝 التفاصيل</h2>
-                        <div className="grid grid-cols-2 gap-3 text-sm">
-                          <div><strong>الاسم:</strong> {selectedItem.title_ar}</div>
-                          <div><strong>الكمية:</strong> {selectedItem.quantity} {selectedItem.unit}</div>
-                          <div><strong>السعر الوحدة:</strong> {selectedItem.unit_price} ريال</div>
-                          <div><strong>الإجمالي:</strong> {(selectedItem.estimated_total || selectedItem.quantity * selectedItem.unit_price).toLocaleString()} ريال</div>
-                          <div><strong>الحالة:</strong> {selectedItem.status}</div>
-                          <div><strong>الجودة:</strong> {selectedItem.quality_grade}</div>
+                      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-5">
+                        <h2 className="font-bold mb-4 text-slate-900 dark:text-white">📝 التفاصيل</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-slate-900 dark:text-white">
+                          <div><strong className="text-slate-600 dark:text-slate-300">الاسم:</strong> {selectedItem.title_ar}</div>
+                          <div><strong className="text-slate-600 dark:text-slate-300">الكمية:</strong> {selectedItem.quantity} {selectedItem.unit}</div>
+                          <div><strong className="text-slate-600 dark:text-slate-300">السعر:</strong> {selectedItem.unit_price?.toLocaleString() || 0} ريال</div>
+                          <div><strong className="text-slate-600 dark:text-slate-300">الإجمالي:</strong> {(selectedItem.estimated_total || selectedItem.quantity * selectedItem.unit_price).toLocaleString()} ريال</div>
                         </div>
                       </div>
                     )}
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center justify-center h-96">
-                    <p className="text-slate-600 text-lg">📊 لا توجد بيانات</p>
+                  <div className="text-center py-20">
+                    <p className="text-slate-600 dark:text-slate-300 text-lg">📊 لا توجد بيانات</p>
                   </div>
                 )}
               </main>
